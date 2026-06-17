@@ -60,15 +60,15 @@ def get_character_assets(char_id: int | str) -> Dict[str, Dict[str, Any]]:
     return skins[0] if skins else {}
 
 
-def get_character_skins(char_id: int | str) -> List[Dict[str, Dict[str, Any]]]:
+def get_character_skins(char_id: int | str | Dict[str, Any]) -> List[Dict[str, Dict[str, Any]]]:
     """
     Get live2d asset entries grouped by pose for each style/skin.
 
     Args:
-        char_id: GameKee character ID.
+        char_id: GameKee character ID, or already parsed API response data.
 
     Returns:
         List of mappings from pose name to entry metadata, one per skin.
     """
-    data = fetch_content(char_id)
+    data = char_id if isinstance(char_id, dict) else fetch_content(char_id)
     return extract_live2d_entries_by_style(data)

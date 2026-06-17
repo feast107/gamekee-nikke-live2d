@@ -2,10 +2,12 @@
 Download live2d assets and Spine runtime files.
 """
 
+import re
 import ssl
+import struct
 import urllib.request
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Set
 
 from .parser import normalize_url
 
@@ -18,9 +20,17 @@ DEFAULT_HEADERS = {
     "Referer": "https://www.gamekee.com/",
 }
 
-SPINE_RUNTIME_FILES = {
-    "spine-player-4.1.54.js": "https://cdnstatic.gamekee.com/wiki/spa/apps/web/client/dist/static/spine-player-4.1.54.js?t=10002",
-    "spine-player-4.1.54.css": "https://cdnstatic.gamekee.com/wiki/spa/apps/web/client/dist/static/spine-player-4.1.54.css?t=10002",
+SPINE_RUNTIME_VERSIONS = {
+    "4.0": {
+        "js": "https://unpkg.com/@esotericsoftware/spine-player@4.0/dist/iife/spine-player.js",
+        "css": "https://unpkg.com/@esotericsoftware/spine-player@4.0/dist/spine-player.css",
+        "var": "spine.SpinePlayer",
+    },
+    "4.1": {
+        "js": "https://cdnstatic.gamekee.com/wiki/spa/apps/web/client/dist/static/spine-player-4.1.54.js?t=10002",
+        "css": "https://cdnstatic.gamekee.com/wiki/spa/apps/web/client/dist/static/spine-player-4.1.54.css?t=10002",
+        "var": "spine_4_1_54.SpinePlayer",
+    },
 }
 
 
@@ -53,17 +63,48 @@ def download_file(url: str, dest: Path, overwrite: bool = False) -> bool:
         return False
 
 
-def download_runtime(output_dir: Path, overwrite: bool = False) -> List[str]:
+def detect_skel_version(skel_path: Path) -> str:
     """
-    Download Spine runtime files.
+    Detect Spine runtime version from binary skel file.
+
+    Returns major.minor version string, e.g. "4.0" or "4.1".
+    Defaults to "4.1" if detection fails.
+    """
+    try:
+        with open(skel_path, "rb") as f:
+            f.read(8)  # skip signature/hash
+            length = struct.unpack("B", f.read(1))[0]
+            raw = f.read(length)
+        version = raw.decode("utf-8", errors="ignore")[:10]
+        match = re.match(r"(\d+\.\d+)", version)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return "4.1"
+
+
+def download_runtime(output_dir: Path, versions: Set[str], overwrite: bool = False) -> Dict[str, Dict[str, str]]:
+    """
+    Download Spine runtime files for the requested versions.
 
     Returns:
-        List of downloaded filenames.
+        Mapping from version to runtime metadata.
     """
-    downloaded = []
-    for name, url in SPINE_RUNTIME_FILES.items():
-        if download_file(url, output_dir / name, overwrite):
-            downloaded.append(name)
+    downloaded: Dict[str, Dict[str, str]] = {}
+    for version in versions:
+        if version not in SPINE_RUNTIME_VERSIONS:
+            version = "4.1"
+        meta = SPINE_RUNTIME_VERSIONS[version]
+        js_name = f"spine-player-{version}.js"
+        css_name = f"spine-player-{version}.css"
+        download_file(meta["js"], output_dir / js_name, overwrite)
+        download_file(meta["css"], output_dir / css_name, overwrite)
+        downloaded[version] = {
+            "js": js_name,
+            "css": css_name,
+            "var": meta["var"],
+        }
     return downloaded
 
 
@@ -111,6 +152,7 @@ def download_assets(
             download_file(image_url, output_dir / image_name, overwrite)
             files["pngs"].append(image_name)
 
+        files["spine_version"] = detect_skel_version(output_dir / files["skel"])
         assets[pose] = files
 
     return assets

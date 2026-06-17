@@ -13,7 +13,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>__TITLE__</title>
-    <link rel="stylesheet" href="spine-player-4.1.54.css">
+    <link id="spine-css" rel="stylesheet" href="__DEFAULT_CSS__">
     <style>
         html, body {
             margin: 0; padding: 0;
@@ -68,14 +68,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div id="skin-controls">
         __SKIN_BUTTONS__
     </div>
-    <div id="pose-controls">
-        __POSE_BUTTONS__
-    </div>
+    <div id="pose-controls"></div>
 
-    <script src="spine-player-4.1.54.js"></script>
+    <script src="__DEFAULT_JS__"></script>
     <script>
         const characterData = __CHARACTER_DATA__;
         const skins = characterData.skins || [characterData];
+        const runtimeMap = __RUNTIME_MAP__;
         const clickAnimationMap = {
             full: "action",
             aim: "aim_fire",
@@ -87,6 +86,44 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         let currentSkin = __DEFAULT_SKIN__;
         let currentType = "__DEFAULT_POSE__";
         let animationTimer = null;
+        let loadedRuntimes = {};
+        const poseOrder = ["full", "aim", "cover"];
+
+        function loadScript(url) {
+            return new Promise((resolve, reject) => {
+                if (loadedRuntimes[url]) return resolve();
+                const script = document.createElement("script");
+                script.src = url;
+                script.onload = () => {
+                    loadedRuntimes[url] = true;
+                    resolve();
+                };
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        }
+
+        function setCss(url) {
+            const link = document.getElementById("spine-css");
+            if (link) link.href = url;
+        }
+
+        async function ensureRuntime(version) {
+            const meta = runtimeMap[version] || runtimeMap["4.1"];
+            setCss(meta.css);
+            await loadScript(meta.js);
+            return meta.var;
+        }
+
+        function getSpineConstructor(varName) {
+            const parts = varName.split(".");
+            let obj = window;
+            for (const part of parts) {
+                obj = obj[part];
+                if (!obj) return null;
+            }
+            return obj;
+        }
 
         function getAssetUrls(skinIndex, type) {
             const skin = skins[skinIndex];
@@ -100,18 +137,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             };
         }
 
-        function getViewport(skinIndex, type) {
-            const skin = skins[skinIndex];
-            const entry = skin && skin[type];
-            const pos = entry && entry.position;
-            const pc = pos && pos.pc && pos.pc.large;
-            if (pc && pc.width && pc.height) {
-                return { x: pc.x, y: pc.y, width: pc.width, height: pc.height };
-            }
-            const container = document.getElementById("player-container");
-            return { x: 0, y: 0, width: container.clientWidth, height: container.clientHeight };
-        }
-
         function autoPlayIdle(p) {
             const animations = p.skeleton && p.skeleton.data && p.skeleton.data.animations;
             if (!animations) return;
@@ -122,18 +147,61 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        function loadPose(skinIndex, type) {
+        function getAvailablePose(skin) {
+            for (const p of poseOrder) {
+                if (skin && skin[p]) return p;
+            }
+            return skin && Object.keys(skin)[0];
+        }
+
+        function renderPoseButtons(skinIndex) {
+            const controls = document.getElementById("pose-controls");
+            if (!controls) return;
+            controls.innerHTML = "";
+            const skin = skins[skinIndex];
+            if (!skin) return;
+            const poses = poseOrder.filter(p => skin[p]).concat(
+                Object.keys(skin).filter(p => !poseOrder.includes(p))
+            );
+            poses.forEach(pose => {
+                const btn = document.createElement("button");
+                btn.className = "pose-btn" + (pose === currentType ? " active" : "");
+                btn.dataset.pose = pose;
+                btn.textContent = pose.toUpperCase();
+                btn.addEventListener("click", () => loadPose(currentSkin, pose));
+                controls.appendChild(btn);
+            });
+        }
+
+        async function loadPose(skinIndex, type) {
+            const skin = skins[skinIndex];
+            if (!skin) return;
+            if (!skin[type]) {
+                type = getAvailablePose(skin);
+            }
             currentSkin = skinIndex;
             currentType = type;
             if (player) {
                 player.dispose();
                 player = null;
             }
+
+            const entry = skin[type];
+            if (!entry) return;
+
+            const version = entry.spine_version || "4.1";
+            const spineVar = await ensureRuntime(version);
+            const SpinePlayer = getSpineConstructor(spineVar);
+            if (!SpinePlayer) {
+                console.error("Spine runtime not found", spineVar);
+                return;
+            }
+
             const urls = getAssetUrls(skinIndex, type);
             if (!urls) return;
 
             const container = document.getElementById("player-container");
-            player = new spine_4_1_54.SpinePlayer(container, {
+            player = new SpinePlayer(container, {
                 skelUrl: urls.skelUrl,
                 atlasUrl: urls.atlasUrl,
                 jsonUrl: urls.jsonUrl,
@@ -157,9 +225,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             document.querySelectorAll(".skin-btn").forEach(btn => {
                 btn.classList.toggle("active", parseInt(btn.dataset.skin) === currentSkin);
             });
-            document.querySelectorAll(".pose-btn").forEach(btn => {
-                btn.classList.toggle("active", btn.dataset.pose === currentType);
-            });
+            renderPoseButtons(currentSkin);
         }
 
         function onPointerDown() {
@@ -194,10 +260,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             });
         });
 
-        document.querySelectorAll(".pose-btn").forEach(btn => {
-            btn.addEventListener("click", () => loadPose(currentSkin, btn.dataset.pose));
-        });
-
         loadPose(currentSkin, currentType);
     </script>
 </body>
@@ -209,6 +271,7 @@ def generate_html(
     output_path: Path,
     title: str,
     character_data: Dict[str, Any],
+    runtime_map: Dict[str, Dict[str, str]],
     default_skin: int = 0,
     default_pose: str = "full",
     background: str = "#1a1a2e",
@@ -219,8 +282,8 @@ def generate_html(
     Args:
         output_path: Destination file path.
         title: Page title.
-        character_data: Either a mapping from pose to metadata, or a dict with
-            a "skins" key containing a list of pose mappings.
+        character_data: Dict with a "skins" key containing a list of pose mappings.
+        runtime_map: Mapping from Spine version to {js, css, var} metadata.
         default_skin: Initial skin index to display.
         default_pose: Initial pose to display.
         background: CSS background value.
@@ -230,23 +293,25 @@ def generate_html(
     """
     skins = character_data.get("skins", [character_data])
     first_skin = skins[default_skin] if skins else {}
+    first_version = (first_skin.get(default_pose) or first_skin.get(next(iter(first_skin)), {})).get("spine_version", "4.1")
+    default_meta = runtime_map.get(first_version, runtime_map.get("4.1", {"js": "", "css": ""}))
 
     skin_buttons = "\n        ".join(
         f'<button class="skin-btn" data-skin="{i}">SKIN {i + 1}</button>'
         for i in range(len(skins))
     )
 
-    pose_buttons = "\n        ".join(
-        f'<button class="pose-btn" data-pose="{pose}">{pose.upper()}</button>'
-        for pose in first_skin.keys()
-    )
+    pose_buttons = ""  # pose buttons are rendered dynamically by JS
 
     html = (
         HTML_TEMPLATE.replace("__TITLE__", title)
         .replace("__BACKGROUND__", background)
+        .replace("__DEFAULT_CSS__", default_meta["css"])
+        .replace("__DEFAULT_JS__", default_meta["js"])
         .replace("__SKIN_BUTTONS__", skin_buttons)
         .replace("__POSE_BUTTONS__", pose_buttons)
         .replace("__CHARACTER_DATA__", json.dumps(character_data, ensure_ascii=False, indent=2))
+        .replace("__RUNTIME_MAP__", json.dumps(runtime_map, ensure_ascii=False, indent=2))
         .replace("__DEFAULT_SKIN__", str(default_skin))
         .replace("__DEFAULT_POSE__", default_pose)
     )

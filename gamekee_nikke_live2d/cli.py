@@ -3,12 +3,33 @@ Command-line interface for gamekee_nikke_live2d.
 """
 
 import argparse
+import json
+import re
 import sys
 from pathlib import Path
 
-from .api import get_character_skins
+from .api import fetch_content, get_character_skins
 from .downloader import download_assets, download_runtime
 from .html_generator import generate_html
+
+
+def extract_character_name(data: dict) -> str:
+    """Extract character display name from content API response."""
+    try:
+        content = json.loads(data.get("content", "{}"))
+        base_data = content.get("baseData", [])
+        if base_data and len(base_data[0]) > 1:
+            value = base_data[0][1].get("value", "")
+            if value:
+                return value
+    except Exception:
+        pass
+    return ""
+
+
+def sanitize_name(name: str) -> str:
+    """Remove characters that are not safe for directory names."""
+    return re.sub(r"[^\w\u4e00-\u9fff-]+", "_", name).strip("_") or "unknown"
 
 
 def build_demo(char_id: int | str, output_dir: str | Path) -> Path:
@@ -25,13 +46,16 @@ def build_demo(char_id: int | str, output_dir: str | Path) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    skins = get_character_skins(char_id)
+    raw_data = fetch_content(char_id)
+    char_name = extract_character_name(raw_data)
+
+    skins = get_character_skins(raw_data)
     if not skins:
         raise RuntimeError(f"No live2d assets found for character {char_id}")
 
-    download_runtime(output_dir)
-
     character_data = {"skins": []}
+    required_versions = set()
+
     for skin_index, pose_entries in enumerate(skins):
         local_assets = download_assets(pose_entries, output_dir)
         skin_data = {}
@@ -39,16 +63,21 @@ def build_demo(char_id: int | str, output_dir: str | Path) -> Path:
             skin_data[pose] = {
                 "base": Path(files["skel"]).stem,
                 "position": pose_entries[pose].get("position", {}),
+                "spine_version": files.get("spine_version", "4.1"),
             }
+            required_versions.add(files.get("spine_version", "4.1"))
         character_data["skins"].append(skin_data)
+
+    runtime_map = download_runtime(output_dir, required_versions)
 
     default_skin = 0
     default_pose = "full" if "full" in character_data["skins"][default_skin] else next(iter(character_data["skins"][default_skin]))
 
     generate_html(
         output_path=output_dir / "index.html",
-        title=f"GameKee NIKKE Live2D - {char_id}",
+        title=f"GameKee NIKKE Live2D - {char_id} {char_name}".strip(),
         character_data=character_data,
+        runtime_map=runtime_map,
         default_skin=default_skin,
         default_pose=default_pose,
     )
@@ -66,12 +95,20 @@ def main(argv: list[str] | None = None) -> int:
         "-o",
         "--output",
         default=None,
-        help="Output directory (default: demo_<char_id>)",
+        help="Output directory (default: demo_<char_id>_<char_name>)",
     )
     args = parser.parse_args(argv)
 
-    output_dir = args.output if args.output else f"demo_{args.char_id}"
-    demo_dir = build_demo(args.char_id, output_dir)
+    if args.output:
+        output_dir = args.output
+        demo_dir = build_demo(args.char_id, output_dir)
+    else:
+        # Need name before building to form directory name.
+        raw_data = fetch_content(args.char_id)
+        char_name = sanitize_name(extract_character_name(raw_data))
+        output_dir = f"demo_{args.char_id}_{char_name}"
+        demo_dir = build_demo(args.char_id, output_dir)
+
     print(f"Demo generated: {demo_dir}")
     print(f"Run: cd {demo_dir} && python -m http.server 8766")
     print("Then open http://localhost:8766")
