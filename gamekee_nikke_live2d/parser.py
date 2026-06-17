@@ -17,20 +17,50 @@ def extract_live2d_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     Returns:
         List of live2d entries, each containing atlas/skel/image/position etc.
     """
-    entries: List[Dict[str, Any]] = []
     try:
         content = json.loads(data.get("content", "{}"))
-        for style_data in content.get("styleData", []):
-            for row in style_data.get("data", []):
-                for cell in row:
-                    value = cell.get("value")
-                    if not isinstance(value, dict):
-                        continue
-                    if any(k in value for k in ("skel", "atlas", "live2dKey")):
-                        entries.append(value)
     except Exception as exc:
         raise ValueError(f"Failed to parse content: {exc}") from exc
+
+    entries: List[Dict[str, Any]] = []
+    for style_data in content.get("styleData", []):
+        entries.extend(extract_live2d_entries_from_style(style_data))
     return entries
+
+
+def extract_live2d_entries_from_style(style_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Extract live2d asset entries from a single styleData object.
+    """
+    entries: List[Dict[str, Any]] = []
+    for row in style_data.get("data", []):
+        for cell in row:
+            value = cell.get("value")
+            if not isinstance(value, dict):
+                continue
+            if any(k in value for k in ("skel", "atlas", "live2dKey")):
+                entries.append(value)
+    return entries
+
+
+def extract_live2d_entries_by_style(data: Dict[str, Any]) -> List[Dict[str, Dict[str, Any]]]:
+    """
+    Extract live2d asset entries grouped by style.
+
+    Returns:
+        List of mappings from pose name to entry, one per style.
+    """
+    try:
+        content = json.loads(data.get("content", "{}"))
+    except Exception as exc:
+        raise ValueError(f"Failed to parse content: {exc}") from exc
+
+    skins: List[Dict[str, Dict[str, Any]]] = []
+    for style_data in content.get("styleData", []):
+        entries = extract_live2d_entries_from_style(style_data)
+        if entries:
+            skins.append(unique_entries_by_pose(entries))
+    return skins
 
 
 def guess_pose_type(entry: Dict[str, Any]) -> str:

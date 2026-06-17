@@ -71,7 +71,7 @@ def download_assets(
     pose_entries: Dict[str, Dict[str, Any]],
     output_dir: Path,
     overwrite: bool = False,
-) -> Dict[str, Dict[str, str]]:
+) -> Dict[str, Dict[str, Any]]:
     """
     Download live2d assets for each pose.
 
@@ -81,15 +81,15 @@ def download_assets(
         overwrite: Whether to overwrite existing files.
 
     Returns:
-        Mapping from pose to local asset filenames.
+        Mapping from pose to local asset metadata.
     """
     from .parser import base_name_from_url, normalize_url
 
-    assets: Dict[str, Dict[str, str]] = {}
+    assets: Dict[str, Dict[str, Any]] = {}
     for pose, entry in pose_entries.items():
         skel_url = normalize_url(entry.get("skel", ""))
         atlas_url = normalize_url(entry.get("atlas", ""))
-        image_url = normalize_url(entry.get("image", ""))
+        image_urls = [normalize_url(u.strip()) for u in entry.get("image", "").split(",") if u.strip()]
 
         if not skel_url:
             continue
@@ -98,12 +98,18 @@ def download_assets(
         files = {
             "skel": f"{base}.skel",
             "atlas": f"{base}.atlas",
-            "png": f"{base}.png",
+            "pngs": [],
         }
 
         download_file(skel_url, output_dir / files["skel"], overwrite)
         download_file(atlas_url, output_dir / files["atlas"], overwrite)
-        download_file(image_url, output_dir / files["png"], overwrite)
+
+        for image_url in image_urls:
+            image_name = base_name_from_url(image_url)
+            if not image_name.endswith(".png"):
+                image_name += ".png"
+            download_file(image_url, output_dir / image_name, overwrite)
+            files["pngs"].append(image_name)
 
         assets[pose] = files
 

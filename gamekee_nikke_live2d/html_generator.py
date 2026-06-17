@@ -30,16 +30,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             height: 100vh;
             position: relative;
         }
-        #controls {
+        #skin-controls, #pose-controls {
             position: absolute;
-            bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
             display: flex;
             gap: 10px;
             z-index: 10;
         }
-        .pose-btn {
+        #skin-controls {
+            top: 20px;
+        }
+        #pose-controls {
+            bottom: 20px;
+        }
+        .skin-btn, .pose-btn {
             padding: 8px 16px;
             border: 1px solid rgba(255,255,255,0.6);
             border-radius: 20px;
@@ -48,7 +53,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             cursor: pointer;
             font-size: 14px;
         }
-        .pose-btn.active {
+        .skin-btn.active, .pose-btn.active {
             background: rgba(255,255,255,0.25);
             border-color: #fff;
         }
@@ -60,13 +65,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
     <div id="player-container"></div>
-    <div id="controls">
-        __BUTTONS__
+    <div id="skin-controls">
+        __SKIN_BUTTONS__
+    </div>
+    <div id="pose-controls">
+        __POSE_BUTTONS__
     </div>
 
     <script src="spine-player-4.1.54.js"></script>
     <script>
         const characterData = __CHARACTER_DATA__;
+        const skins = characterData.skins || [characterData];
         const clickAnimationMap = {
             full: "action",
             aim: "aim_fire",
@@ -75,23 +84,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         let player = null;
         let animationList = [];
+        let currentSkin = __DEFAULT_SKIN__;
         let currentType = "__DEFAULT_POSE__";
         let animationTimer = null;
 
-        function getAssetUrls(type) {
-            const entry = characterData[type];
+        function getAssetUrls(skinIndex, type) {
+            const skin = skins[skinIndex];
+            const entry = skin && skin[type];
             if (!entry) return null;
             const base = entry.base;
             return {
                 skelUrl: base + ".skel",
                 atlasUrl: base + ".atlas",
-                jsonUrl: "",
-                pngUrl: base + ".png"
+                jsonUrl: ""
             };
         }
 
-        function getViewport(type) {
-            const entry = characterData[type];
+        function getViewport(skinIndex, type) {
+            const skin = skins[skinIndex];
+            const entry = skin && skin[type];
             const pos = entry && entry.position;
             const pc = pos && pos.pc && pos.pc.large;
             if (pc && pc.width && pc.height) {
@@ -111,13 +122,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        function loadPose(type) {
+        function loadPose(skinIndex, type) {
+            currentSkin = skinIndex;
             currentType = type;
             if (player) {
                 player.dispose();
                 player = null;
             }
-            const urls = getAssetUrls(type);
+            const urls = getAssetUrls(skinIndex, type);
             if (!urls) return;
 
             const container = document.getElementById("player-container");
@@ -125,7 +137,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 skelUrl: urls.skelUrl,
                 atlasUrl: urls.atlasUrl,
                 jsonUrl: urls.jsonUrl,
-                pngUrl: urls.pngUrl,
                 alpha: true,
                 backgroundColor: "#00000000",
                 preserveDrawingBuffer: true,
@@ -139,12 +150,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     autoPlayIdle(loadedPlayer);
                 },
                 error: function(err) {
-                    console.error("Spine player failed to load", type, err);
+                    console.error("Spine player failed to load", skinIndex, type, err);
                 }
             });
 
+            document.querySelectorAll(".skin-btn").forEach(btn => {
+                btn.classList.toggle("active", parseInt(btn.dataset.skin) === currentSkin);
+            });
             document.querySelectorAll(".pose-btn").forEach(btn => {
-                btn.classList.toggle("active", btn.dataset.pose === type);
+                btn.classList.toggle("active", btn.dataset.pose === currentType);
             });
         }
 
@@ -172,11 +186,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         container.addEventListener("touchend", onPointerUp, { passive: false });
         container.addEventListener("mouseleave", onPointerUp);
 
-        document.querySelectorAll(".pose-btn").forEach(btn => {
-            btn.addEventListener("click", () => loadPose(btn.dataset.pose));
+        document.querySelectorAll(".skin-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const newSkin = parseInt(btn.dataset.skin);
+                if (newSkin === currentSkin) return;
+                loadPose(newSkin, currentType);
+            });
         });
 
-        loadPose(currentType);
+        document.querySelectorAll(".pose-btn").forEach(btn => {
+            btn.addEventListener("click", () => loadPose(currentSkin, btn.dataset.pose));
+        });
+
+        loadPose(currentSkin, currentType);
     </script>
 </body>
 </html>
@@ -187,6 +209,7 @@ def generate_html(
     output_path: Path,
     title: str,
     character_data: Dict[str, Any],
+    default_skin: int = 0,
     default_pose: str = "full",
     background: str = "#1a1a2e",
 ) -> Path:
@@ -196,23 +219,35 @@ def generate_html(
     Args:
         output_path: Destination file path.
         title: Page title.
-        character_data: Mapping from pose to local asset metadata.
+        character_data: Either a mapping from pose to metadata, or a dict with
+            a "skins" key containing a list of pose mappings.
+        default_skin: Initial skin index to display.
         default_pose: Initial pose to display.
         background: CSS background value.
 
     Returns:
         Path to generated HTML file.
     """
-    buttons = "\n        ".join(
+    skins = character_data.get("skins", [character_data])
+    first_skin = skins[default_skin] if skins else {}
+
+    skin_buttons = "\n        ".join(
+        f'<button class="skin-btn" data-skin="{i}">SKIN {i + 1}</button>'
+        for i in range(len(skins))
+    )
+
+    pose_buttons = "\n        ".join(
         f'<button class="pose-btn" data-pose="{pose}">{pose.upper()}</button>'
-        for pose in character_data.keys()
+        for pose in first_skin.keys()
     )
 
     html = (
         HTML_TEMPLATE.replace("__TITLE__", title)
         .replace("__BACKGROUND__", background)
-        .replace("__BUTTONS__", buttons)
+        .replace("__SKIN_BUTTONS__", skin_buttons)
+        .replace("__POSE_BUTTONS__", pose_buttons)
         .replace("__CHARACTER_DATA__", json.dumps(character_data, ensure_ascii=False, indent=2))
+        .replace("__DEFAULT_SKIN__", str(default_skin))
         .replace("__DEFAULT_POSE__", default_pose)
     )
 

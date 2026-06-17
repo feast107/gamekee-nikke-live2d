@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .api import get_character_assets
+from .api import get_character_skins
 from .downloader import download_assets, download_runtime
 from .html_generator import generate_html
 
@@ -25,25 +25,32 @@ def build_demo(char_id: int | str, output_dir: str | Path) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    pose_entries = get_character_assets(char_id)
-    if not pose_entries:
+    skins = get_character_skins(char_id)
+    if not skins:
         raise RuntimeError(f"No live2d assets found for character {char_id}")
 
     download_runtime(output_dir)
-    local_assets = download_assets(pose_entries, output_dir)
 
-    character_data = {}
-    for pose, files in local_assets.items():
-        character_data[pose] = {
-            "base": Path(files["skel"]).stem,
-            "position": pose_entries[pose].get("position", {}),
-        }
+    character_data = {"skins": []}
+    for skin_index, pose_entries in enumerate(skins):
+        local_assets = download_assets(pose_entries, output_dir)
+        skin_data = {}
+        for pose, files in local_assets.items():
+            skin_data[pose] = {
+                "base": Path(files["skel"]).stem,
+                "position": pose_entries[pose].get("position", {}),
+            }
+        character_data["skins"].append(skin_data)
+
+    default_skin = 0
+    default_pose = "full" if "full" in character_data["skins"][default_skin] else next(iter(character_data["skins"][default_skin]))
 
     generate_html(
         output_path=output_dir / "index.html",
         title=f"GameKee NIKKE Live2D - {char_id}",
         character_data=character_data,
-        default_pose="full" if "full" in character_data else next(iter(character_data)),
+        default_skin=default_skin,
+        default_pose=default_pose,
     )
 
     return output_dir

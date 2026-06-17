@@ -5,9 +5,9 @@ Fetch and process GameKee content API.
 import json
 import ssl
 import urllib.request
-from typing import Any, Dict
+from typing import Any, Dict, List
 
-from .parser import extract_live2d_entries, unique_entries_by_pose
+from .parser import extract_live2d_entries_by_style, unique_entries_by_pose
 
 
 API_BASE = "https://api-cdn.gamekee.com/wiki2.0/pro/1253/content/{char_id}.json"
@@ -47,12 +47,28 @@ def get_character_assets(char_id: int | str) -> Dict[str, Dict[str, Any]]:
     """
     Get unique live2d asset entries grouped by pose for a character.
 
+    Uses the first style only. For multi-skin characters, see
+    `get_character_skins`.
+
     Args:
         char_id: GameKee character ID.
 
     Returns:
         Mapping from pose name to entry metadata.
     """
+    skins = get_character_skins(char_id)
+    return skins[0] if skins else {}
+
+
+def get_character_skins(char_id: int | str) -> List[Dict[str, Dict[str, Any]]]:
+    """
+    Get live2d asset entries grouped by pose for each style/skin.
+
+    Args:
+        char_id: GameKee character ID.
+
+    Returns:
+        List of mappings from pose name to entry metadata, one per skin.
+    """
     data = fetch_content(char_id)
-    entries = extract_live2d_entries(data)
-    return unique_entries_by_pose(entries)
+    return extract_live2d_entries_by_style(data)

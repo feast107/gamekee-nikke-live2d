@@ -16,7 +16,7 @@ Command line::
     cd demo && python -m http.server 8766
 """
 
-from .api import fetch_content, get_character_assets
+from .api import fetch_content, get_character_assets, get_character_skins
 from .cli import build_demo, main
 from .downloader import download_assets, download_file, download_runtime
 from .html_generator import generate_html
@@ -41,6 +41,7 @@ __all__ = [
     "fetch_content",
     "generate_html",
     "get_character_assets",
+    "get_character_skins",
     "guess_pose_type",
     "main",
     "normalize_url",
