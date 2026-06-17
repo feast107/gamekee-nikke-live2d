@@ -52,6 +52,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             background: rgba(255,255,255,0.25);
             border-color: #fff;
         }
+        /* Hide the timeline/progress bar, keep the play button */
+        .spine-player-timeline {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
