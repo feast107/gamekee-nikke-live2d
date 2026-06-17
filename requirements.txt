@@ -1,0 +1,2 @@
+# The package uses only Python standard library for network and file I/O.
+# The Spine player is loaded directly from GameKee CDN in generated demos.
