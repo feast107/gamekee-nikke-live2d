@@ -33,13 +33,17 @@ gamekee-nikke-live2d <角色ID> [-o <输出目录>]
 示例：
 
 ```bash
+# 默认生成 demo_164728 目录，不会覆盖之前的生成结果
+gamekee-nikke-live2d 164728
+
+# 自定义输出目录
 gamekee-nikke-live2d 164728 -o demo_anker
 ```
 
 然后使用任意静态 HTTP 服务器运行输出目录：
 
 ```bash
-cd demo_anker
+cd demo_164728
 python -m http.server 8766
 ```
 

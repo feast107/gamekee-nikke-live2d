@@ -34,7 +34,10 @@ def build_demo(char_id: int | str, output_dir: str | Path) -> Path:
 
     character_data = {}
     for pose, files in local_assets.items():
-        character_data[pose] = {"base": Path(files["skel"]).stem}
+        character_data[pose] = {
+            "base": Path(files["skel"]).stem,
+            "position": pose_entries[pose].get("position", {}),
+        }
 
     generate_html(
         output_path=output_dir / "index.html",
@@ -55,12 +58,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "-o",
         "--output",
-        default="demo",
-        help="Output directory (default: demo)",
+        default=None,
+        help="Output directory (default: demo_<char_id>)",
     )
     args = parser.parse_args(argv)
 
-    demo_dir = build_demo(args.char_id, args.output)
+    output_dir = args.output if args.output else f"demo_{args.char_id}"
+    demo_dir = build_demo(args.char_id, output_dir)
     print(f"Demo generated: {demo_dir}")
     print(f"Run: cd {demo_dir} && python -m http.server 8766")
     print("Then open http://localhost:8766")
