@@ -1,5 +1,7 @@
 # gamekee-nikke-live2d
 
+![](./tests/sample.png)
+
 为 GameKee 的 NIKKE 角色生成独立的 Spine live2d HTML 演示页面。
 
 ## 功能
