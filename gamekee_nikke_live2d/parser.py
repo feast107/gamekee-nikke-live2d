@@ -35,7 +35,7 @@ def extract_live2d_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def guess_pose_type(entry: Dict[str, Any]) -> str:
     """
-    Guess pose type (full / aim / cover) from skel URL or filename.
+    Guess pose type (full / aim / cover) from animation name or skel URL.
 
     Args:
         entry: A live2d asset entry.
@@ -43,6 +43,14 @@ def guess_pose_type(entry: Dict[str, Any]) -> str:
     Returns:
         One of "full", "aim", "cover".
     """
+    animation = entry.get("animation", "")
+    anim_lower = animation.lower()
+
+    if "aim" in anim_lower:
+        return "aim"
+    if "cover" in anim_lower:
+        return "cover"
+
     skel = entry.get("skel", "")
     lower = skel.lower()
 
@@ -65,6 +73,10 @@ def unique_entries_by_pose(entries: List[Dict[str, Any]]) -> Dict[str, Dict[str,
     """
     Deduplicate live2d entries by pose, keeping the first occurrence of each pose.
 
+    For entries whose pose cannot be inferred from filename or animation name,
+    assign poses in order: full -> aim -> cover. GameKee tables typically list
+    poses in this order.
+
     Args:
         entries: List of live2d entries.
 
@@ -72,10 +84,22 @@ def unique_entries_by_pose(entries: List[Dict[str, Any]]) -> Dict[str, Dict[str,
         Mapping from pose name to entry.
     """
     result: Dict[str, Dict[str, Any]] = {}
+    fallback_poses = ["full", "aim", "cover"]
+    fallback_index = 0
+
     for entry in entries:
         pose = guess_pose_type(entry)
-        if pose not in result:
-            result[pose] = entry
+        # If pose already taken (e.g. multiple entries guessed as full),
+        # use the next available fallback pose in order.
+        if pose in result:
+            while fallback_index < len(fallback_poses) and fallback_poses[fallback_index] in result:
+                fallback_index += 1
+            if fallback_index < len(fallback_poses):
+                pose = fallback_poses[fallback_index]
+                fallback_index += 1
+            else:
+                continue
+        result[pose] = entry
     return result
 
 
