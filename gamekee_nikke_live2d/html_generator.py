@@ -114,7 +114,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             box-sizing: border-box;
         }
         #debug-panel .debug-list {
-            max-height: 200px;
+            max-height: 340px;
             overflow-y: auto;
             border: 1px solid rgba(255,255,255,0.1);
             border-radius: 6px;
